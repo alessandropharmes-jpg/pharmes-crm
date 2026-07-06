@@ -232,6 +232,14 @@
           <input id="cfgWebhook" placeholder="https://seu-n8n.com/webhook/ativacao-crm" />
         </div>
         <div class="field">
+          <label>Armazenamento no n8n — URL (modo local, sem Supabase)</label>
+          <input id="cfgCrmList" placeholder="http://192.168.1.128:5678/webhook/crm" />
+        </div>
+        <p style="font-size:12px;color:var(--text-dim);line-height:1.5;margin:-4px 0 6px">
+          Preenchendo isto (e deixando o Supabase vazio), o CRM lê os clientes gravados
+          pelo próprio fluxo n8n e atualiza os cards sozinho (a cada 5s). Fluxo: planilha → n8n → CRM.
+        </p>
+        <div class="field">
           <label>HSM (texto do template enviado na ativação) — opcional</label>
           <input id="cfgHsm" placeholder="Ex: template_medicamento_acabando" />
         </div>
@@ -298,12 +306,28 @@
     return sb;
   }
   function usingSupabase() { return !!sb; }
+
+  // ----- Modo "n8n como armazenamento local" (sem Supabase) -----
+  function n8nStoreUrl() { const c = getCfg(); return (!usingSupabase() && c.crmList) ? c.crmList.trim() : ""; }
+  function usingN8nStore() { return !!n8nStoreUrl(); }
+  async function n8nStorePost(payload) {
+    const url = n8nStoreUrl(); if (!url) throw new Error("Sem URL do n8n");
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json().catch(() => ({}));
+  }
+  let n8nPollTimer = null;
+  function startN8nPoll() {
+    if (n8nPollTimer) { clearInterval(n8nPollTimer); n8nPollTimer = null; }
+    if (usingN8nStore()) n8nPollTimer = setInterval(() => { dbLoad().then(render).catch(() => {}); }, 5000);
+  }
+
   function updateModeBadge() {
     const el = document.getElementById("modeBadge");
-    if (el) {
-      el.textContent = usingSupabase() ? "● Supabase (tempo real)" : "● Local (localStorage)";
-      el.style.color = usingSupabase() ? "var(--green)" : "var(--text-dim)";
-    }
+    if (!el) return;
+    if (usingSupabase()) { el.textContent = "● Supabase (tempo real)"; el.style.color = "var(--green)"; }
+    else if (usingN8nStore()) { el.textContent = "● n8n (local, tempo real)"; el.style.color = "var(--green)"; }
+    else { el.textContent = "● Local (localStorage)"; el.style.color = "var(--text-dim)"; }
   }
 
   // Mapeamento entre o modelo do CRM e a tabela crm_clientes
@@ -331,6 +355,16 @@
       const { data, error } = await sb.from("crm_clientes").select("*").order("created_at", { ascending: false });
       if (error) { alert("Erro lendo Supabase: " + error.message); clientes = []; return; }
       clientes = (data || []).map(fromRow);
+    } else if (usingN8nStore()) {
+      try {
+        const r = await n8nStorePost({ action: "list" });
+        const arr = (r && r.clientes) || [];
+        clientes = arr.map(fromRow);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(clientes)); } catch {}
+      } catch (e) {
+        console.error("n8n list:", e);
+        try { const raw = localStorage.getItem(STORAGE_KEY); clientes = raw ? JSON.parse(raw) : []; } catch { clientes = []; }
+      }
     } else {
       try { const raw = localStorage.getItem(STORAGE_KEY); clientes = raw ? JSON.parse(raw) : SEED.slice(); }
       catch { clientes = SEED.slice(); }
@@ -348,6 +382,13 @@
       if (error) { alert("Erro gravando no Supabase: " + error.message); return; }
       // recarrega para refletir upserts (inseridos + atualizados) sem duplicar no cache
       await dbLoad();
+    } else if (usingN8nStore()) {
+      await n8nStorePost({ action: "add", clientes: list.map(c => ({
+        name: c.nome, phone: (c.telefone || ""), filial: c.filialCodigo ?? null,
+        channel_id: c.channel_id || "", hsm: c.hsm || "", email: c.email || "",
+        categoria: c.categoria || "", etapa: c.etapa || "ativado", valor: +c.valor || 0, notas: c.notas || ""
+      })) });
+      await dbLoad();
     } else {
       list.forEach(c => clientes.unshift({ id: uid(), ...c }));
       saveLocal();
@@ -358,6 +399,8 @@
     if (usingSupabase()) {
       const { error } = await sb.from("crm_clientes").update(toRow(c)).eq("id", c.id);
       if (error) alert("Erro atualizando no Supabase: " + error.message);
+    } else if (usingN8nStore()) {
+      try { await n8nStorePost({ action: "update", id: c.id, patch: toRow(c) }); } catch (e) { console.error(e); }
     } else { saveLocal(); }
   }
   async function dbDelete(id) {
@@ -365,6 +408,8 @@
     if (usingSupabase()) {
       const { error } = await sb.from("crm_clientes").delete().eq("id", id);
       if (error) alert("Erro excluindo no Supabase: " + error.message);
+    } else if (usingN8nStore()) {
+      try { await n8nStorePost({ action: "delete", id }); } catch (e) { console.error(e); }
     } else { saveLocal(); }
   }
   async function dbReplaceAll(list) {
@@ -629,6 +674,7 @@
     const c = getCfg();
     document.getElementById("cfgSbUrl").value = c.sbUrl || "";
     document.getElementById("cfgSbKey").value = c.sbKey || "";
+    document.getElementById("cfgCrmList").value = c.crmList || "";
     document.getElementById("cfgWebhook").value = c.webhook || "";
     document.getElementById("cfgHsm").value = c.hsm || "";
     document.getElementById("cfgChannel").value = c.channel || "";
@@ -639,6 +685,7 @@
     localStorage.setItem(CFG_KEY, JSON.stringify({
       sbUrl: document.getElementById("cfgSbUrl").value.trim(),
       sbKey: document.getElementById("cfgSbKey").value.trim(),
+      crmList: document.getElementById("cfgCrmList").value.trim(),
       webhook: document.getElementById("cfgWebhook").value.trim(),
       hsm: document.getElementById("cfgHsm").value.trim(),
       channel: document.getElementById("cfgChannel").value.trim(),
@@ -647,8 +694,9 @@
     initSupabase();
     await dbLoad();
     subscribeRealtime();
+    startN8nPoll();
     render();
-    alert("Configuração salva." + (usingSupabase() ? " Conectado ao Supabase (tempo real)." : " Modo local."));
+    alert("Configuração salva." + (usingSupabase() ? " Supabase (tempo real)." : usingN8nStore() ? " n8n local (tempo real)." : " Modo local."));
   }
   document.getElementById("overlayCfg").addEventListener("click", e => { if (e.target.id === "overlayCfg") closeConfig(); });
 
@@ -691,7 +739,7 @@
   // ---------- Init ----------
   fillStageSelect();
   initSupabase();
-  dbLoad().then(() => { subscribeRealtime(); render(); });
+  dbLoad().then(() => { subscribeRealtime(); startN8nPoll(); render(); });
 </script>
 </body>
 </html>
