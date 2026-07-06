@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pharmes CRM — Gestão de Clientes</title>
+<link rel="icon" type="image/jpeg" href="logo-pharmes.jpg" />
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    /* Paleta Pharmes — verde profundo + dourado */
+    --bg: #092a20;
+    --bg-panel: #0f3a2d;
+    --bg-card: #144737;
+    --bg-card-hover: #1b5645;
+    --border: #235b49;
+    --text: #f1ead8;
+    --text-dim: #9cb3a7;
+    --accent: #c7a95f;
+    --accent-2: #e2cf98;
+    --green: #3fbf7a;
+    --yellow: #e0b341;
+    --blue: #6ea8fe;
+    --orange: #d98c3f;
+    --shadow: 0 10px 28px rgba(0,0,0,.45);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 600px at 20% -10%, #124233 0%, var(--bg) 55%);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 14px 24px;
+    background: linear-gradient(90deg, #0c3628, #124334 55%, #16543f);
+    border-bottom: 1px solid rgba(199,169,95,.35);
+    box-shadow: var(--shadow);
+    position: sticky; top: 0; z-index: 20;
+  }
+  header .logo { height: 48px; width: 48px; border-radius: 10px; object-fit: cover; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  header .brand { display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 20px; font-weight: 700; letter-spacing: 1px; color: var(--accent-2); }
+  header .brand small { display: block; font-size: 12px; opacity: .8; font-weight: 400; color: var(--text-dim); }
+  .btn {
+    border: 0; border-radius: 10px; padding: 10px 16px; font-size: 14px;
+    font-weight: 600; cursor: pointer; background: rgba(255,255,255,.15);
+    color: #fff; transition: .15s; white-space: nowrap;
+  }
+  .btn:hover { background: rgba(255,255,255,.28); transform: translateY(-1px); }
+  .btn-primary { background: linear-gradient(180deg, #d8bd77, #c7a95f); color: #0c3628; }
+  .btn-primary:hover { background: linear-gradient(180deg, #e2cf98, #cfb268); }
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 16px 24px; background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .toolbar input, .toolbar select {
+    background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; padding: 10px 12px; font-size: 14px; outline: none;
+  }
+  .toolbar input { min-width: 240px; flex: 1; }
+  .toolbar input:focus, .toolbar select:focus { border-color: var(--accent); }
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; padding: 16px 24px 0; }
+  .stat {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; min-width: 130px;
+  }
+  .stat .num { font-size: 24px; font-weight: 700; }
+  .stat .lbl { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .board {
+    display: flex; gap: 16px; padding: 20px 24px 40px; overflow-x: auto;
+    align-items: flex-start; min-height: 60vh;
+  }
+  .column {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px;
+    min-width: 290px; width: 290px; flex-shrink: 0; display: flex; flex-direction: column;
+    max-height: calc(100vh - 220px);
+  }
+  .column.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+  .col-head {
+    padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .col-head .title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .count { background: var(--bg-card); border-radius: 20px; padding: 2px 10px; font-size: 12px; color: var(--text-dim); }
+  .col-body { padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 14px; cursor: grab; transition: .12s; position: relative;
+  }
+  .card:hover { background: var(--bg-card-hover); border-color: var(--accent); transform: translateY(-1px); }
+  .card:active { cursor: grabbing; }
+  .card.dragging { opacity: .4; }
+  .card .name { font-weight: 700; font-size: 14px; margin-bottom: 6px; padding-right: 20px; }
+  .card .meta { font-size: 12px; color: var(--text-dim); display: flex; flex-direction: column; gap: 3px; }
+  .card .tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: rgba(199,169,95,.16); color: var(--accent-2); border: 1px solid rgba(199,169,95,.3); }
+  .card .quick { display: flex; gap: 8px; margin-top: 10px; }
+  .quick a {
+    text-decoration: none; font-size: 12px; padding: 5px 10px; border-radius: 8px;
+    background: var(--bg-panel); color: var(--text-dim); border: 1px solid var(--border); transition: .12s;
+  }
+  .quick a:hover { color: #fff; border-color: var(--accent); }
+  .card .del { position: absolute; top: 8px; right: 10px; color: var(--text-dim); cursor: pointer; font-size: 16px; line-height: 1; }
+  .card .del:hover { color: #ff6b6b; }
+  .empty { color: var(--text-dim); font-size: 13px; text-align: center; padding: 20px 8px; opacity: .7; }
+  /* Modal */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(6,7,18,.7); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 16px;
+    width: 100%; max-width: 520px; box-shadow: var(--shadow); max-height: 90vh; overflow-y: auto;
+  }
+  .modal-head { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .modal-head h2 { font-size: 18px; }
+  .modal-body { padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+  .field input, .field select, .field textarea {
+    width: 100%; background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; padding: 10px 12px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .modal-foot { padding: 16px 22px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+  .close { cursor: pointer; font-size: 22px; color: var(--text-dim); }
+  .close:hover { color: #fff; }
+  .footer-note { text-align: center; color: var(--text-dim); font-size: 12px; padding: 8px 24px 30px; }
+  @media (max-width: 640px) {
+    .grid2 { grid-template-columns: 1fr; }
+    .toolbar input { min-width: 140px; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img class="logo" src="logo-pharmes.jpg" alt="Pharmes — Farmácia de Manipulação" />
+      <div>
+        <h1>PHARMES · CRM</h1>
+        <small>Pipeline de vendas — Farmácia de Manipulação</small>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" onclick="openConfig()">⚙ n8n</button>
+      <button class="btn" onclick="exportData()">⬇ Backup</button>
+      <button class="btn" onclick="importData()">⬆ Importar planilha</button>
+      <button class="btn" onclick="ativarN8n()">⚡ Ativar no n8n</button>
+      <button class="btn btn-primary" onclick="openNew()">＋ Novo</button>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="🔍 Buscar por nome, telefone, e-mail..." oninput="render()" />
+    <select id="fFilial" onchange="render()"><option value="">Todas as filiais</option></select>
+    <select id="fCategoria" onchange="render()"><option value="">Todas as categorias</option></select>
+    <button class="btn" onclick="clearFilters()">Limpar</button>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="footer-note">
+    Modo de dados: <span id="modeBadge">● Local (localStorage)</span> — configure em <b>⚙ n8n</b>.
+    Use <b>⬇ Backup</b> para exportar. — Pharmes CRM
+  </div>
+
+  <!-- Modal -->
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modalTitle">Novo Cliente</h2>
+        <span class="close" onclick="closeModal()">✕</span>
+      </div>
+      <div class="modal-body">
+        <div class="field"><label>Nome *</label><input id="mNome" placeholder="Nome do cliente" /></div>
+        <div class="grid2">
+          <div class="field"><label>Telefone / WhatsApp</label><input id="mTel" placeholder="5532988888888" /></div>
+          <div class="field"><label>E-mail</label><input id="mEmail" placeholder="cliente@email.com" /></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Filial</label><input id="mFilial" placeholder="Ex: Matriz" /></div>
+          <div class="field"><label>Categoria</label><input id="mCategoria" placeholder="Ex: Dermato, Emagrecimento" /></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Etapa</label><select id="mEtapa"></select></div>
+          <div class="field"><label>Valor estimado (R$)</label><input id="mValor" type="number" placeholder="0,00" /></div>
+        </div>
+        <div class="field"><label>Notas internas</label><textarea id="mNotas" placeholder="Observações, histórico, próximos passos..."></textarea></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveClient()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.json,application/json" style="display:none" onchange="handleImport(event)" />
+
+  <!-- Modal config n8n -->
+  <div class="overlay" id="overlayCfg">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>⚙ Conexão com o n8n</h2>
+        <span class="close" onclick="closeConfig()">✕</span>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Supabase — Project URL</label>
+          <input id="cfgSbUrl" placeholder="https://seu-projeto.supabase.co" />
+        </div>
+        <div class="field">
+          <label>Supabase — anon public key</label>
+          <input id="cfgSbKey" placeholder="eyJhbGciOi..." />
+        </div>
+        <p style="font-size:12px;color:var(--text-dim);line-height:1.5;margin:-4px 0 6px">
+          Com Supabase configurado, o CRM lê/grava no banco em <b>tempo real</b> e sincroniza com o
+          fluxo n8n. Sem isso, funciona local (localStorage). Rode antes o <b>supabase-crm_clientes.sql</b>.
+        </p>
+        <hr style="border:0;border-top:1px solid var(--border);margin:4px 0" />
+        <div class="field">
+          <label>URL do Webhook do fluxo "Ativação de base" (n8n)</label>
+          <input id="cfgWebhook" placeholder="https://seu-n8n.com/webhook/ativacao-crm" />
+        </div>
+        <div class="field">
+          <label>HSM (texto do template enviado na ativação) — opcional</label>
+          <input id="cfgHsm" placeholder="Ex: template_medicamento_acabando" />
+        </div>
+        <div class="field">
+          <label>channel_id padrão — opcional (se a planilha não trouxer)</label>
+          <input id="cfgChannel" placeholder="Ex: 12345" />
+        </div>
+        <p style="font-size:12px;color:var(--text-dim);line-height:1.5">
+          O botão <b>⚡ Ativar no n8n</b> envia todos os clientes da coluna <b>Cliente Ativado</b>
+          para esse webhook (um JSON com name, phone, filial, channel_id, hsm por cliente).
+          Veja <b>CONECTOR-N8N.md</b> para colar o nó Webhook no seu fluxo.
+        </p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeConfig()">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveConfig()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ---------- Configuração das etapas do pipeline ----------
+  const STAGES = [
+    { id: "ativado",     name: "Cliente Ativado", color: "#6ea8fe" },
+    { id: "contato",     name: "Em Contato",      color: "#e0b341" },
+    { id: "orcamento",   name: "Orçamento",       color: "#d98c3f" },
+    { id: "negociacao",  name: "Negociação",      color: "#c7a95f" },
+    { id: "vendido",     name: "Vendido",         color: "#3fbf7a" },
+  ];
+
+  // Filiais (mesmo mapeamento do nó Switch do fluxo n8n "Ativação de base")
+  const FILIAIS = {
+    1: "Matriz Balcão", 2: "Santa Rita Balcão", 3: "Ecommerce", 4: "Call Center",
+    5: "Rx Call Center", 7: "Três Rios", 8: "Botafogo", 9: "Tijuca",
+    12: "Niterói Centro", 13: "Niterói Icaraí",
+  };
+
+  const STORAGE_KEY = "pharmes_crm_clientes_v1";
+  let clientes = [];
+  let editingId = null;
+
+  // ---------- Dados de exemplo (só na primeira vez) ----------
+  const SEED = [
+    { id: uid(), nome: "João Silva", telefone: "5532988880001", email: "joao@email.com", filial: "Matriz", categoria: "Dermato", etapa: "ativado", valor: 350, notas: "Interessado em fórmula para acne." },
+    { id: uid(), nome: "Maria Santos", telefone: "5532988880002", email: "maria@email.com", filial: "Filial Centro", categoria: "Emagrecimento", etapa: "contato", valor: 480, notas: "Aguardando retorno do médico." },
+    { id: uid(), nome: "Carlos Oliveira", telefone: "5532988880003", email: "", filial: "Matriz", categoria: "Suplementos", etapa: "orcamento", valor: 220, notas: "Orçamento enviado por WhatsApp." },
+    { id: uid(), nome: "Ana Costa", telefone: "5532988880004", email: "ana@email.com", filial: "Filial Sul", categoria: "Dermato", etapa: "negociacao", valor: 610, notas: "Negociando desconto de fidelidade." },
+    { id: uid(), nome: "Pedro Lima", telefone: "5532988880005", email: "pedro@email.com", filial: "Matriz", categoria: "Emagrecimento", etapa: "vendido", valor: 540, notas: "Compra concluída. Reagendar recompra em 30 dias." },
+  ];
+
+  function uid() { return "c_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
+
+  // ========== Camada de dados: Supabase (se configurado) OU localStorage ==========
+  let sb = null; // cliente supabase
+  let realtimeSub = null;
+
+  function initSupabase() {
+    const c = getCfg();
+    if (c.sbUrl && c.sbKey && window.supabase) {
+      try { sb = window.supabase.createClient(c.sbUrl, c.sbKey); }
+      catch (e) { sb = null; console.error("Supabase init:", e); }
+    } else { sb = null; }
+    updateModeBadge();
+    return sb;
+  }
+  function usingSupabase() { return !!sb; }
+  function updateModeBadge() {
+    const el = document.getElementById("modeBadge");
+    if (el) {
+      el.textContent = usingSupabase() ? "● Supabase (tempo real)" : "● Local (localStorage)";
+      el.style.color = usingSupabase() ? "var(--green)" : "var(--text-dim)";
+    }
+  }
+
+  // Mapeamento entre o modelo do CRM e a tabela crm_clientes
+  function toRow(c) {
+    return {
+      nome: c.nome, telefone: c.telefone || null, email: c.email || null,
+      filial: c.filialCodigo ?? null, filial_nome: c.filial || null,
+      categoria: c.categoria || null, etapa: c.etapa || "ativado",
+      valor: +c.valor || 0, notas: c.notas || null,
+      channel_id: c.channel_id || null, hsm: c.hsm || null,
+    };
+  }
+  function fromRow(r) {
+    return {
+      id: r.id, nome: r.nome, telefone: r.telefone || "", email: r.email || "",
+      filial: r.filial_nome || FILIAIS[r.filial] || (r.filial ? "Filial " + r.filial : ""),
+      filialCodigo: r.filial ?? null, categoria: r.categoria || "",
+      valor: +r.valor || 0, notas: r.notas || "",
+      channel_id: r.channel_id || "", hsm: r.hsm || "", etapa: r.etapa || "ativado",
+    };
+  }
+
+  async function dbLoad() {
+    if (usingSupabase()) {
+      const { data, error } = await sb.from("crm_clientes").select("*").order("created_at", { ascending: false });
+      if (error) { alert("Erro lendo Supabase: " + error.message); clientes = []; return; }
+      clientes = (data || []).map(fromRow);
+    } else {
+      try { const raw = localStorage.getItem(STORAGE_KEY); clientes = raw ? JSON.parse(raw) : SEED.slice(); }
+      catch { clientes = SEED.slice(); }
+      saveLocal();
+    }
+  }
+  function saveLocal() { if (!usingSupabase()) localStorage.setItem(STORAGE_KEY, JSON.stringify(clientes)); }
+
+  async function dbInsert(list) {
+    if (usingSupabase()) {
+      // upsert por telefone: reimportar a mesma planilha não duplica clientes
+      const { data, error } = await sb.from("crm_clientes")
+        .upsert(list.map(toRow), { onConflict: "telefone", ignoreDuplicates: false })
+        .select();
+      if (error) { alert("Erro gravando no Supabase: " + error.message); return; }
+      // recarrega para refletir upserts (inseridos + atualizados) sem duplicar no cache
+      await dbLoad();
+    } else {
+      list.forEach(c => clientes.unshift({ id: uid(), ...c }));
+      saveLocal();
+    }
+  }
+  async function dbUpdate(c, patch) {
+    Object.assign(c, patch);
+    if (usingSupabase()) {
+      const { error } = await sb.from("crm_clientes").update(toRow(c)).eq("id", c.id);
+      if (error) alert("Erro atualizando no Supabase: " + error.message);
+    } else { saveLocal(); }
+  }
+  async function dbDelete(id) {
+    clientes = clientes.filter(c => c.id !== id);
+    if (usingSupabase()) {
+      const { error } = await sb.from("crm_clientes").delete().eq("id", id);
+      if (error) alert("Erro excluindo no Supabase: " + error.message);
+    } else { saveLocal(); }
+  }
+  async function dbReplaceAll(list) {
+    if (usingSupabase()) { await dbInsert(list); }   // no banco, apenas acrescenta o backup
+    else { clientes = list; saveLocal(); }
+  }
+
+  function subscribeRealtime() {
+    if (!usingSupabase()) return;
+    if (realtimeSub) { try { sb.removeChannel(realtimeSub); } catch {} realtimeSub = null; }
+    realtimeSub = sb.channel("crm_clientes_rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "crm_clientes" },
+        () => dbLoad().then(render))
+      .subscribe();
+  }
+
+  // ---------- Render ----------
+  function render() {
+    const term = document.getElementById("search").value.trim().toLowerCase();
+    const fFil = document.getElementById("fFilial").value;
+    const fCat = document.getElementById("fCategoria").value;
+
+    populateFilters();
+
+    const filtered = clientes.filter(c => {
+      const matchTerm = !term ||
+        (c.nome || "").toLowerCase().includes(term) ||
+        (c.telefone || "").toLowerCase().includes(term) ||
+        (c.email || "").toLowerCase().includes(term);
+      const matchFil = !fFil || c.filial === fFil;
+      const matchCat = !fCat || c.categoria === fCat;
+      return matchTerm && matchFil && matchCat;
+    });
+
+    // Stats
+    const total = filtered.length;
+    const vendidos = filtered.filter(c => c.etapa === "vendido").length;
+    const receita = filtered.filter(c => c.etapa === "vendido").reduce((s, c) => s + (+c.valor || 0), 0);
+    const pipeline = filtered.filter(c => c.etapa !== "vendido").reduce((s, c) => s + (+c.valor || 0), 0);
+    document.getElementById("stats").innerHTML = `
+      <div class="stat"><div class="num">${total}</div><div class="lbl">Clientes</div></div>
+      <div class="stat"><div class="num" style="color:var(--green)">${vendidos}</div><div class="lbl">Vendidos</div></div>
+      <div class="stat"><div class="num" style="color:var(--green)">${brl(receita)}</div><div class="lbl">Receita realizada</div></div>
+      <div class="stat"><div class="num" style="color:var(--accent-2)">${brl(pipeline)}</div><div class="lbl">Em pipeline</div></div>`;
+
+    // Board
+    const board = document.getElementById("board");
+    board.innerHTML = "";
+    STAGES.forEach(stage => {
+      const list = filtered.filter(c => c.etapa === stage.id);
+      const col = document.createElement("div");
+      col.className = "column";
+      col.dataset.stage = stage.id;
+      col.innerHTML = `
+        <div class="col-head">
+          <div class="title"><span class="dot" style="background:${stage.color}"></span>${stage.name}</div>
+          <span class="count">${list.length}</span>
+        </div>
+        <div class="col-body"></div>`;
+      const body = col.querySelector(".col-body");
+      if (list.length === 0) body.innerHTML = `<div class="empty">Sem clientes</div>`;
+      list.forEach(c => body.appendChild(cardEl(c)));
+
+      // Drag targets
+      col.addEventListener("dragover", e => { e.preventDefault(); col.classList.add("drag-over"); });
+      col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
+      col.addEventListener("drop", e => {
+        e.preventDefault(); col.classList.remove("drag-over");
+        const id = e.dataTransfer.getData("text/plain");
+        const cli = clientes.find(x => x.id === id);
+        if (cli && cli.etapa !== stage.id) { dbUpdate(cli, { etapa: stage.id }); render(); }
+      });
+      board.appendChild(col);
+    });
+  }
+
+  function cardEl(c) {
+    const el = document.createElement("div");
+    el.className = "card";
+    el.draggable = true;
+    const tel = (c.telefone || "").replace(/\D/g, "");
+    const wa = tel ? `<a href="https://wa.me/${tel}" target="_blank" onclick="event.stopPropagation()">💬 WhatsApp</a>` : "";
+    const em = c.email ? `<a href="mailto:${c.email}" onclick="event.stopPropagation()">✉ E-mail</a>` : "";
+    el.innerHTML = `
+      <span class="del" title="Excluir" onclick="event.stopPropagation();delClient('${c.id}')">×</span>
+      <div class="name">${esc(c.nome || "Sem nome")}</div>
+      <div class="meta">
+        ${c.telefone ? `<span>📞 ${esc(c.telefone)}</span>` : ""}
+        ${c.filial ? `<span>🏬 ${esc(c.filial)}</span>` : ""}
+        ${(+c.valor) ? `<span>💰 ${brl(+c.valor)}</span>` : ""}
+      </div>
+      <div class="tags">${c.categoria ? `<span class="tag">${esc(c.categoria)}</span>` : ""}</div>
+      <div class="quick">${wa}${em}</div>`;
+    el.addEventListener("click", () => openEdit(c.id));
+    el.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", c.id); el.classList.add("dragging"); });
+    el.addEventListener("dragend", () => el.classList.remove("dragging"));
+    return el;
+  }
+
+  function populateFilters() {
+    const filiais = [...new Set(clientes.map(c => c.filial).filter(Boolean))].sort();
+    const cats = [...new Set(clientes.map(c => c.categoria).filter(Boolean))].sort();
+    fillSelect("fFilial", filiais, "Todas as filiais");
+    fillSelect("fCategoria", cats, "Todas as categorias");
+  }
+  function fillSelect(id, values, placeholder) {
+    const sel = document.getElementById(id);
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">${placeholder}</option>` + values.map(v => `<option>${esc(v)}</option>`).join("");
+    if (values.includes(cur)) sel.value = cur;
+  }
+  function clearFilters() {
+    document.getElementById("search").value = "";
+    document.getElementById("fFilial").value = "";
+    document.getElementById("fCategoria").value = "";
+    render();
+  }
+
+  // ---------- Modal / CRUD ----------
+  function fillStageSelect() {
+    document.getElementById("mEtapa").innerHTML = STAGES.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+  }
+  function openNew() {
+    editingId = null;
+    document.getElementById("modalTitle").textContent = "Novo Cliente";
+    ["mNome","mTel","mEmail","mFilial","mCategoria","mValor","mNotas"].forEach(i => document.getElementById(i).value = "");
+    document.getElementById("mEtapa").value = STAGES[0].id;
+    showModal();
+  }
+  function openEdit(id) {
+    const c = clientes.find(x => x.id === id); if (!c) return;
+    editingId = id;
+    document.getElementById("modalTitle").textContent = "Editar Cliente";
+    document.getElementById("mNome").value = c.nome || "";
+    document.getElementById("mTel").value = c.telefone || "";
+    document.getElementById("mEmail").value = c.email || "";
+    document.getElementById("mFilial").value = c.filial || "";
+    document.getElementById("mCategoria").value = c.categoria || "";
+    document.getElementById("mValor").value = c.valor || "";
+    document.getElementById("mNotas").value = c.notas || "";
+    document.getElementById("mEtapa").value = c.etapa || STAGES[0].id;
+    showModal();
+  }
+  async function saveClient() {
+    const nome = document.getElementById("mNome").value.trim();
+    if (!nome) { alert("O nome é obrigatório."); return; }
+    const filialTxt = document.getElementById("mFilial").value.trim();
+    const codByNome = Object.keys(FILIAIS).find(k => FILIAIS[k].toLowerCase() === filialTxt.toLowerCase());
+    const data = {
+      nome,
+      telefone: document.getElementById("mTel").value.trim(),
+      email: document.getElementById("mEmail").value.trim(),
+      filial: filialTxt,
+      filialCodigo: codByNome ? +codByNome : (editingId ? undefined : null),
+      categoria: document.getElementById("mCategoria").value.trim(),
+      valor: +document.getElementById("mValor").value || 0,
+      notas: document.getElementById("mNotas").value.trim(),
+      etapa: document.getElementById("mEtapa").value,
+    };
+    if (data.filialCodigo === undefined) delete data.filialCodigo;
+    if (editingId) {
+      const c = clientes.find(x => x.id === editingId);
+      await dbUpdate(c, data);
+    } else {
+      await dbInsert([data]);
+    }
+    closeModal(); render();
+  }
+  async function delClient(id) {
+    if (!confirm("Excluir este cliente?")) return;
+    await dbDelete(id); render();
+  }
+  function showModal() { document.getElementById("overlay").classList.add("show"); }
+  function closeModal() { document.getElementById("overlay").classList.remove("show"); }
+  document.getElementById("overlay").addEventListener("click", e => { if (e.target.id === "overlay") closeModal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+  // ---------- Import / Export ----------
+  function exportData() {
+    const blob = new Blob([JSON.stringify(clientes, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "pharmes-crm-backup-" + new Date().toISOString().slice(0,10) + ".json";
+    a.click();
+  }
+  function importData() { document.getElementById("fileInput").click(); }
+  function handleImport(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (ext === "json") { importJson(file); }
+    else { importPlanilha(file); }
+    e.target.value = "";
+  }
+
+  // ---- Importa backup JSON (formato do próprio CRM) ----
+  function importJson(file) {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!Array.isArray(data)) throw new Error("Formato inválido");
+        const list = data.map(c => ({ etapa: c.etapa || STAGES[0].id, ...c }));
+        await dbReplaceAll(list); render();
+        alert("Importados " + list.length + " clientes (backup).");
+      } catch (err) { alert("Arquivo inválido: " + err.message); }
+    };
+    reader.readAsText(file);
+  }
+
+  // ---- Importa planilha Excel/CSV: cada LINHA vira um cliente em "Cliente Ativado" ----
+  function importPlanilha(file) {
+    if (typeof XLSX === "undefined") { alert("Leitor de planilha ainda carregando. Verifique a conexão e tente de novo."); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const wb = XLSX.read(reader.result, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        if (!rows.length) throw new Error("A planilha está vazia.");
+        const novosArr = [];
+        rows.forEach(row => {
+          const nome = pick(row, ["nome", "name", "cliente", "nome do cliente"]);
+          const telRaw = pick(row, ["telefone", "phone", "celular", "whatsapp", "fone", "tel"]);
+          const tel = String(telRaw).replace(/\D/g, "");
+          if (!nome && !tel) return; // linha vazia
+          const filCod = parseInt(String(pick(row, ["filial", "filial_id", "unidade", "loja", "filialcodigo"])).replace(/\D/g, ""), 10);
+          const channel = pick(row, ["channel_id", "channelid", "canal"]);
+          const hsm = pick(row, ["hsm", "template", "mensagem"]);
+          const categoria = pick(row, ["categoria", "produto", "tag"]);
+          novosArr.push({
+            nome: String(nome || "Sem nome").trim(),
+            telefone: tel,
+            email: pick(row, ["email", "e-mail"]),
+            filial: FILIAIS[filCod] || (filCod ? "Filial " + filCod : ""),
+            filialCodigo: isNaN(filCod) ? null : filCod,
+            categoria: String(categoria || "").trim(),
+            valor: 0,
+            notas: "",
+            channel_id: String(channel || "").trim(),
+            hsm: String(hsm || "").trim(),
+            etapa: "ativado",
+          });
+        });
+        await dbInsert(novosArr); render();
+        alert("✅ Importados " + novosArr.length + " clientes na coluna 'Cliente Ativado'.");
+      } catch (err) { alert("Erro ao ler planilha: " + err.message); }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  // Procura o valor de uma coluna testando vários nomes possíveis (case-insensitive)
+  function pick(row, keys) {
+    const map = {};
+    Object.keys(row).forEach(k => map[k.toString().trim().toLowerCase()] = row[k]);
+    for (const key of keys) { if (map[key] !== undefined && map[key] !== "") return map[key]; }
+    return "";
+  }
+
+  // ---------- Config n8n ----------
+  const CFG_KEY = "pharmes_crm_n8n_cfg";
+  function getCfg() { try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch { return {}; } }
+  function openConfig() {
+    const c = getCfg();
+    document.getElementById("cfgSbUrl").value = c.sbUrl || "";
+    document.getElementById("cfgSbKey").value = c.sbKey || "";
+    document.getElementById("cfgWebhook").value = c.webhook || "";
+    document.getElementById("cfgHsm").value = c.hsm || "";
+    document.getElementById("cfgChannel").value = c.channel || "";
+    document.getElementById("overlayCfg").classList.add("show");
+  }
+  function closeConfig() { document.getElementById("overlayCfg").classList.remove("show"); }
+  async function saveConfig() {
+    localStorage.setItem(CFG_KEY, JSON.stringify({
+      sbUrl: document.getElementById("cfgSbUrl").value.trim(),
+      sbKey: document.getElementById("cfgSbKey").value.trim(),
+      webhook: document.getElementById("cfgWebhook").value.trim(),
+      hsm: document.getElementById("cfgHsm").value.trim(),
+      channel: document.getElementById("cfgChannel").value.trim(),
+    }));
+    closeConfig();
+    initSupabase();
+    await dbLoad();
+    subscribeRealtime();
+    render();
+    alert("Configuração salva." + (usingSupabase() ? " Conectado ao Supabase (tempo real)." : " Modo local."));
+  }
+  document.getElementById("overlayCfg").addEventListener("click", e => { if (e.target.id === "overlayCfg") closeConfig(); });
+
+  // ---------- Ativar no n8n (dispara o fluxo) ----------
+  async function ativarN8n() {
+    const cfg = getCfg();
+    if (!cfg.webhook) { alert("Configure primeiro a URL do webhook em ⚙ n8n."); openConfig(); return; }
+    const alvo = clientes.filter(c => c.etapa === "ativado");
+    if (!alvo.length) { alert("Não há clientes na coluna 'Cliente Ativado' para ativar."); return; }
+    if (!confirm("Enviar " + alvo.length + " cliente(s) da coluna 'Cliente Ativado' para o fluxo n8n?")) return;
+
+    const payload = alvo.map(c => ({
+      name: c.nome,
+      phone: (c.telefone || "").replace(/\D/g, ""),
+      filial: c.filialCodigo || null,
+      channel_id: c.channel_id || cfg.channel || "",
+      hsm: c.hsm || cfg.hsm || "",
+    }));
+
+    try {
+      const res = await fetch(cfg.webhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientes: payload }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      // Move os ativados para a próxima etapa
+      for (const c of alvo) await dbUpdate(c, { etapa: "contato" });
+      render();
+      alert("✅ " + payload.length + " cliente(s) enviados ao n8n. Movidos para 'Em Contato'.");
+    } catch (err) {
+      alert("❌ Falha ao enviar: " + err.message + "\n\nSe for erro de CORS, ative 'Allowed Origins' no nó Webhook do n8n (veja CONECTOR-N8N.md).");
+    }
+  }
+
+  // ---------- Utils ----------
+  function brl(n) { return (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m])); }
+
+  // ---------- Init ----------
+  fillStageSelect();
+  initSupabase();
+  dbLoad().then(() => { subscribeRealtime(); render(); });
+</script>
+</body>
+</html>
