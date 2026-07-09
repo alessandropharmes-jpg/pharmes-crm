@@ -204,6 +204,22 @@
     </div>
   </div>
 
+  <!-- Modal detalhes (visualização estilo Bitrix) -->
+  <div class="overlay" id="overlayView">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="vTitle">Cliente</h2>
+        <span class="close" onclick="closeDetail()">✕</span>
+      </div>
+      <div class="modal-body" id="vBody"></div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeDetail()">Fechar</button>
+        <button class="btn" style="color:#ff9a9a" onclick="delFromView()">Excluir</button>
+        <button class="btn btn-primary" onclick="editFromView()">✎ Editar</button>
+      </div>
+    </div>
+  </div>
+
   <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.json,application/json" style="display:none" onchange="handleImport(event)" />
 
   <!-- Modal config n8n -->
@@ -230,6 +246,10 @@
         <div class="field">
           <label>URL do Webhook do fluxo "Ativação de base" (n8n)</label>
           <input id="cfgWebhook" placeholder="https://seu-n8n.com/webhook/ativacao-crm" />
+        </div>
+        <div class="field">
+          <label>Chat2Desk — URL do workspace (botão dos cards)</label>
+          <input id="cfgChat2desk" placeholder="https://SEU-WORKSPACE.chat24.io" />
         </div>
         <div class="field">
           <label>Armazenamento no n8n — URL (modo local, sem Supabase)</label>
@@ -347,6 +367,8 @@
       filialCodigo: r.filial ?? null, categoria: r.categoria || "",
       valor: +r.valor || 0, notas: r.notas || "",
       channel_id: r.channel_id || "", hsm: r.hsm || "", etapa: r.etapa || "ativado",
+      created_at: r.created_at || r.criado_em || null,
+      updated_at: r.updated_at || null,
     };
   }
 
@@ -390,7 +412,8 @@
       })) });
       await dbLoad();
     } else {
-      list.forEach(c => clientes.unshift({ id: uid(), ...c }));
+      const now = new Date().toISOString();
+      list.forEach(c => clientes.unshift({ id: uid(), created_at: now, ...c }));
       saveLocal();
     }
   }
@@ -491,8 +514,9 @@
     el.className = "card";
     el.draggable = true;
     const tel = (c.telefone || "").replace(/\D/g, "");
-    const wa = tel ? `<a href="https://wa.me/${tel}" target="_blank" onclick="event.stopPropagation()">💬 WhatsApp</a>` : "";
+    const c2 = tel ? `<a href="${chat2deskHref(c)}" target="_blank" onclick="event.stopPropagation()">💬 Chat2Desk</a>` : "";
     const em = c.email ? `<a href="mailto:${c.email}" onclick="event.stopPropagation()">✉ E-mail</a>` : "";
+    const criado = fmtShort(c.created_at);
     el.innerHTML = `
       <span class="del" title="Excluir" onclick="event.stopPropagation();delClient('${c.id}')">×</span>
       <div class="name">${esc(c.nome || "Sem nome")}</div>
@@ -500,10 +524,11 @@
         ${c.telefone ? `<span>📞 ${esc(c.telefone)}</span>` : ""}
         ${c.filial ? `<span>🏬 ${esc(c.filial)}</span>` : ""}
         ${(+c.valor) ? `<span>💰 ${brl(+c.valor)}</span>` : ""}
+        ${criado ? `<span>🕒 ${criado}</span>` : ""}
       </div>
       <div class="tags">${c.categoria ? `<span class="tag">${esc(c.categoria)}</span>` : ""}</div>
-      <div class="quick">${wa}${em}</div>`;
-    el.addEventListener("click", () => openEdit(c.id));
+      <div class="quick">${c2}${em}</div>`;
+    el.addEventListener("click", () => openDetail(c.id));
     el.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", c.id); el.classList.add("dragging"); });
     el.addEventListener("dragend", () => el.classList.remove("dragging"));
     return el;
@@ -585,7 +610,7 @@
   function showModal() { document.getElementById("overlay").classList.add("show"); }
   function closeModal() { document.getElementById("overlay").classList.remove("show"); }
   document.getElementById("overlay").addEventListener("click", e => { if (e.target.id === "overlay") closeModal(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { closeModal(); closeDetail(); closeConfig(); } });
 
   // ---------- Import / Export ----------
   function exportData() {
@@ -678,6 +703,7 @@
     document.getElementById("cfgWebhook").value = c.webhook || "";
     document.getElementById("cfgHsm").value = c.hsm || "";
     document.getElementById("cfgChannel").value = c.channel || "";
+    document.getElementById("cfgChat2desk").value = c.chat2desk || "";
     document.getElementById("overlayCfg").classList.add("show");
   }
   function closeConfig() { document.getElementById("overlayCfg").classList.remove("show"); }
@@ -689,6 +715,7 @@
       webhook: document.getElementById("cfgWebhook").value.trim(),
       hsm: document.getElementById("cfgHsm").value.trim(),
       channel: document.getElementById("cfgChannel").value.trim(),
+      chat2desk: document.getElementById("cfgChat2desk").value.trim(),
     }));
     closeConfig();
     initSupabase();
@@ -735,6 +762,41 @@
   // ---------- Utils ----------
   function brl(n) { return (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
   function esc(s) { return String(s).replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m])); }
+  function fmtDate(v) { if (!v) return "—"; const d = new Date(v); return isNaN(d) ? "—" : d.toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }); }
+  function fmtShort(v) { if (!v) return ""; const d = new Date(v); return isNaN(d) ? "" : d.toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }); }
+  function chat2deskHref(c) { const base = (getCfg().chat2desk || "").trim(); if (base) return base; const tel = (c.telefone||"").replace(/\D/g,""); return tel ? "https://wa.me/"+tel : "#"; }
+
+  // ---------- Detalhes do card (visualização estilo Bitrix) ----------
+  let viewingId = null;
+  function openDetail(id) {
+    const c = clientes.find(x => x.id === id); if (!c) return;
+    viewingId = id;
+    document.getElementById("vTitle").textContent = c.nome || "Cliente";
+    const stage = STAGES.find(s => s.id === c.etapa) || { name: c.etapa, color: "#888" };
+    const tel = (c.telefone||"").replace(/\D/g,"");
+    const row = (k,v) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--text-dim)">${k}</span><span style="text-align:right;font-weight:600">${v}</span></div>`;
+    const badge = `<span style="background:${stage.color}22;color:${stage.color};border:1px solid ${stage.color}55;padding:2px 10px;border-radius:20px;font-size:12px">${esc(stage.name)}</span>`;
+    let html = row("Etapa", badge)
+      + row("Telefone", c.telefone ? esc(c.telefone) : "—")
+      + row("Filial", c.filial ? esc(c.filial) : "—")
+      + row("Categoria", c.categoria ? esc(c.categoria) : "—")
+      + row("E-mail", c.email ? esc(c.email) : "—")
+      + row("Valor estimado", (+c.valor) ? brl(+c.valor) : "—")
+      + row("channel_id", c.channel_id ? esc(c.channel_id) : "—")
+      + row("🕒 Criado em", fmtDate(c.created_at))
+      + row("Atualizado em", fmtDate(c.updated_at));
+    if (c.notas) html += `<div style="margin-top:12px"><div style="color:var(--text-dim);font-size:12px;margin-bottom:4px">Notas internas</div><div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${esc(c.notas)}</div></div>`;
+    const links = [];
+    if (tel) links.push(`<a class="btn" href="${chat2deskHref(c)}" target="_blank" style="text-decoration:none">💬 Chat2Desk</a>`);
+    if (c.email) links.push(`<a class="btn" href="mailto:${c.email}" style="text-decoration:none">✉ E-mail</a>`);
+    if (links.length) html += `<div style="display:flex;gap:8px;margin-top:14px">${links.join("")}</div>`;
+    document.getElementById("vBody").innerHTML = html;
+    document.getElementById("overlayView").classList.add("show");
+  }
+  function closeDetail() { document.getElementById("overlayView").classList.remove("show"); }
+  function editFromView() { const id = viewingId; closeDetail(); openEdit(id); }
+  async function delFromView() { const id = viewingId; closeDetail(); await delClient(id); }
+  document.getElementById("overlayView").addEventListener("click", e => { if (e.target.id === "overlayView") closeDetail(); });
 
   // ---------- Init ----------
   fillStageSelect();
